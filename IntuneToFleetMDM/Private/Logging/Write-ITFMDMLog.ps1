@@ -12,7 +12,7 @@ function Write-ITFMDMLog {
         [string]$Message,
 
         [Parameter()]
-        [hashtable]$Data
+        [object]$Data
     )
 
     $prefix = '[IntuneToFleetMDM]'

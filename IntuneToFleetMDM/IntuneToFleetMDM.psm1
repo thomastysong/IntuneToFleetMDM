@@ -23,8 +23,17 @@ function Initialize-ITFMModuleConfiguration {
 
     $script:CorrelationId = [guid]::NewGuid().ToString()
 
+    $logPath = [string]$defaults.LogPath
+    # Support either PowerShell-style $env:ProgramData or Windows-style %ProgramData%
+    if ($logPath -match '%ProgramData%') {
+        $pd = $env:ProgramData
+        if (-not $pd) { $pd = 'C:\ProgramData' }
+        $logPath = $logPath.Replace('%ProgramData%', $pd)
+    }
+    $logPath = $ExecutionContext.InvokeCommand.ExpandString($logPath)
+
     $script:ModuleConfig = @{
-        LogPath          = $ExecutionContext.InvokeCommand.ExpandString($defaults.LogPath)
+        LogPath          = $logPath
         EventLogName     = $defaults.EventLogName
         EventLogSource   = $defaults.EventLogSource
         StateRegistryKey = $defaults.StateRegistryKey

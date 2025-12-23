@@ -8,6 +8,9 @@ function Invoke-ITFInMTA {
         [hashtable]$Arguments,
 
         [Parameter(Mandatory)]
+        [string]$ModuleManifestPath,
+
+        [Parameter(Mandatory)]
         [string]$ResultPath
     )
 
@@ -15,22 +18,29 @@ function Invoke-ITFInMTA {
 
     $encodedArgs = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($argsJson))
     $encodedResultPath = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ResultPath))
+    $encodedManifestPath = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ModuleManifestPath))
 
-    $cmd = @"
-\$ErrorActionPreference = 'Stop'
-\$argsJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encodedArgs'))
-\$resultPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encodedResultPath'))
-\$params = ConvertFrom-Json -InputObject \$argsJson
-Import-Module IntuneToFleetMDM -Force
-\$ht = @{}
-foreach (\$p in \$params.psobject.Properties) { \$ht[\$p.Name] = \$p.Value }
-\$r = & $CommandName @ht -NoMtaRelaunch
-\$r | ConvertTo-Json -Depth 6 | Set-Content -Path \$resultPath -Encoding UTF8 -Force
-"@
+    $cmdTemplate = @'
+$ErrorActionPreference = 'Stop'
+$argsJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__ARGS__'))
+$resultPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__RESULT__'))
+$manifestPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__MANIFEST__'))
+$params = ConvertFrom-Json -InputObject $argsJson
+Import-Module $manifestPath -Force
+$ht = @{}
+foreach ($p in $params.psobject.Properties) { $ht[$p.Name] = $p.Value }
+$r = & __CMD__ @ht -NoMtaRelaunch
+$r | ConvertTo-Json -Depth 6 | Set-Content -Path $resultPath -Encoding UTF8 -Force
+'@
+
+    $cmd = $cmdTemplate.Replace('__ARGS__', $encodedArgs).Replace('__RESULT__', $encodedResultPath).Replace('__MANIFEST__', $encodedManifestPath).Replace('__CMD__', $CommandName)
+
+    # Use -EncodedCommand to avoid quoting/escaping issues across shells.
+    $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = 'powershell.exe'
-    $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -MTA -Command `"$cmd`""
+    $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -MTA -EncodedCommand $encodedCommand"
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true

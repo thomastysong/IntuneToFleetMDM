@@ -56,7 +56,9 @@ function Invoke-ITFMDMMigration {
             result_path = $tmp
         }
 
-        $r = Invoke-ITFInMTA -CommandName 'Invoke-ITFMDMMigration' -Arguments $args -ResultPath $tmp
+        $moduleRoot = Split-Path $PSScriptRoot -Parent
+        $manifestPath = Join-Path $moduleRoot 'IntuneToFleetMDM.psd1'
+        $r = Invoke-ITFInMTA -CommandName 'Invoke-ITFMDMMigration' -Arguments $args -ModuleManifestPath $manifestPath -ResultPath $tmp
         if (Test-Path $tmp) {
             try { return (Get-Content -Path $tmp -Raw | ConvertFrom-Json) } catch { }
         }
