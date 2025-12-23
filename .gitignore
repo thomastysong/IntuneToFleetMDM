@@ -1,0 +1,16 @@
+.env
+*.nupkg
+*.snupkg
+*.zip
+bin/
+obj/
+.vscode/
+.idea/
+*.user
+*.suo
+*.cache
+*.log
+*.tmp
+*.bak
+
+

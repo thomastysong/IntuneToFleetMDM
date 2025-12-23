@@ -1,0 +1,34 @@
+TOPIC
+    about_IntuneToFleetMDM
+
+SHORT DESCRIPTION
+    Migrate Windows devices from Intune MDM to Fleet Windows MDM using supported Windows MDM APIs.
+
+DESCRIPTION
+    IntuneToFleetMDM uses mdmregistration.dll APIs:
+      - UnregisterDeviceWithManagement(0) to remove the current MDM enrollment (e.g., Intune)
+      - RegisterDeviceWithManagement(..., https://<fleet-host>/api/mdm/microsoft/discovery, <token>) to enroll into Fleet
+
+    Enrollment is verified using OS state (Enrollments + OMADM registry), not only return codes.
+
+COMMANDS
+    Get-ITFMDMEnrollmentState
+    Test-ITFMDMMigrationPrereqs
+    Invoke-ITFMDMMigration
+    Get-ITFMDMLogs
+
+EXAMPLES
+    # Check prereqs for a target Fleet instance
+    Test-ITFMDMMigrationPrereqs -FleetHost 'nv.cloud.fleetdm.com'
+
+    # Full migration
+    Invoke-ITFMDMMigration -FleetHost 'nv.cloud.fleetdm.com'
+
+    # Enroll-only retry (skip unenroll)
+    Invoke-ITFMDMMigration -FleetHost 'nv.cloud.fleetdm.com' -SkipUnenroll
+
+NOTES
+    - Must run elevated (SYSTEM/Admin).
+    - Some environments behave better in MTA; Invoke-ITFMDMMigration can relaunch in MTA when needed.
+
+
