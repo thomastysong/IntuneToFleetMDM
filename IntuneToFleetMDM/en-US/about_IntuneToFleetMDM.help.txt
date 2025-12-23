@@ -19,13 +19,13 @@ COMMANDS
 
 EXAMPLES
     # Check prereqs for a target Fleet instance
-    Test-ITFMDMMigrationPrereqs -FleetHost 'nv.cloud.fleetdm.com'
+    Test-ITFMDMMigrationPrereqs -FleetHost '<fleet-host>'
 
     # Full migration
-    Invoke-ITFMDMMigration -FleetHost 'nv.cloud.fleetdm.com'
+    Invoke-ITFMDMMigration -FleetHost '<fleet-host>'
 
     # Enroll-only retry (skip unenroll)
-    Invoke-ITFMDMMigration -FleetHost 'nv.cloud.fleetdm.com' -SkipUnenroll
+    Invoke-ITFMDMMigration -FleetHost '<fleet-host>' -SkipUnenroll
 
 NOTES
     - Must run elevated (SYSTEM/Admin).
