@@ -36,45 +36,47 @@ function Invoke-ITFMDMMigration {
     $cfg = Get-ITFMDMConfig
     $corr = $script:ITFMDM_Logging.CorrelationId
 
+    # Relaunch in MTA if needed (common when called from STA hosts).
+    # Note: Slack notifications are emitted from the inner MTA process to avoid duplicates.
+    $aptState = [System.Threading.Thread]::CurrentThread.ApartmentState
+    if (-not $NoMtaRelaunch -and $aptState -ne [System.Threading.ApartmentState]::MTA) {
+        $tempBase = $env:TEMP
+        if (-not $tempBase) { $tempBase = $env:TMP }
+        if (-not $tempBase) { $tempBase = 'C:\Windows\Temp' }
+
+        $tmp = Join-Path $tempBase ("itfmdm_result_{0}.json" -f ([guid]::NewGuid().ToString()))
+        $args = @{
+            FleetHost        = $FleetHost
+            DiscoveryUrl     = $DiscoveryUrl
+            SkipUnenroll     = [bool]$SkipUnenroll
+            UnenrollOnly     = [bool]$UnenrollOnly
+            EnrollOnly       = [bool]$EnrollOnly
+            Force            = [bool]$Force
+            OrbitNodeKeyPath = $OrbitNodeKeyPath
+            SlackWebhook     = $SlackWebhook
+        }
+
+        Write-ITFMDMLog -Level Warn -EventId 2001 -Message 'Relaunching in MTA for MDM registration reliability' -Data @{
+            current_apartment_state = [string]$aptState
+            result_path = $tmp
+        }
+
+        $moduleRoot = Split-Path $PSScriptRoot -Parent
+        $manifestPath = Join-Path $moduleRoot 'IntuneToFleetMDM.psd1'
+        $r = Invoke-ITFInMTA -CommandName 'Invoke-ITFMDMMigration' -Arguments $args -ModuleManifestPath $manifestPath -ResultPath $tmp
+        if (Test-Path $tmp) {
+            try { return (Get-Content -Path $tmp -Raw | ConvertFrom-Json) } catch { }
+        }
+        throw ("MTA relaunch failed (exit={0}). StdErr={1}" -f $r.ExitCode, $r.StdErr)
+    }
+
     $notifyCtx = $null
     if ($SlackWebhook) {
         $notifyCtx = Get-ITFDeviceNotificationContext -FleetHost $FleetHost -DiscoveryUrl $DiscoveryUrl -CorrelationId $corr
     }
 
+    $changesMade = $false
     try {
-        # Relaunch in MTA if needed (common when called from STA hosts).
-        $aptState = [System.Threading.Thread]::CurrentThread.ApartmentState
-        if (-not $NoMtaRelaunch -and $aptState -ne [System.Threading.ApartmentState]::MTA) {
-            $tempBase = $env:TEMP
-            if (-not $tempBase) { $tempBase = $env:TMP }
-            if (-not $tempBase) { $tempBase = 'C:\Windows\Temp' }
-
-            $tmp = Join-Path $tempBase ("itfmdm_result_{0}.json" -f ([guid]::NewGuid().ToString()))
-            $args = @{
-                FleetHost        = $FleetHost
-                DiscoveryUrl     = $DiscoveryUrl
-                SkipUnenroll     = [bool]$SkipUnenroll
-                UnenrollOnly     = [bool]$UnenrollOnly
-                EnrollOnly       = [bool]$EnrollOnly
-                Force            = [bool]$Force
-                OrbitNodeKeyPath = $OrbitNodeKeyPath
-                SlackWebhook     = $SlackWebhook
-            }
-
-            Write-ITFMDMLog -Level Warn -EventId 2001 -Message 'Relaunching in MTA for MDM registration reliability' -Data @{
-                current_apartment_state = [string]$aptState
-                result_path = $tmp
-            }
-
-            $moduleRoot = Split-Path $PSScriptRoot -Parent
-            $manifestPath = Join-Path $moduleRoot 'IntuneToFleetMDM.psd1'
-            $r = Invoke-ITFInMTA -CommandName 'Invoke-ITFMDMMigration' -Arguments $args -ModuleManifestPath $manifestPath -ResultPath $tmp
-            if (Test-Path $tmp) {
-                try { return (Get-Content -Path $tmp -Raw | ConvertFrom-Json) } catch { }
-            }
-            throw ("MTA relaunch failed (exit={0}). StdErr={1}" -f $r.ExitCode, $r.StdErr)
-        }
-
         $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
         ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
         if (-not $isAdmin) {
@@ -111,12 +113,43 @@ function Invoke-ITFMDMMigration {
             AttemptTime   = (Get-Date).ToString('o')
         } | Out-Null
 
+        # Preflight: avoid unenrolling legacy MDM unless we can proceed with Fleet enrollment.
+        $orbit = $null
+        if (-not $UnenrollOnly) {
+            $orbit = Get-ITFOrbitNodeKey -OrbitNodeKeyPath $OrbitNodeKeyPath
+            if (-not $orbit -or -not $orbit.OrbitNodeKey) {
+                throw 'Orbit node key not found on disk. Install Orbit and ensure the node key file is present, or pass -OrbitNodeKeyPath.'
+            }
+
+            # Best-effort reachability check. If the discovery endpoint cannot be reached (no HTTP response),
+            # do not unenroll. Note: We treat non-2xx responses as "reachable".
+            try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+            try {
+                $req = [System.Net.HttpWebRequest]::Create($DiscoveryUrl)
+                $req.Method = 'GET'
+                $req.Timeout = 10000
+                $req.ReadWriteTimeout = 10000
+                $req.AllowAutoRedirect = $true
+                $resp = $req.GetResponse()
+                try { $resp.Close() } catch { }
+            }
+            catch [System.Net.WebException] {
+                # If we got an HTTP response (even error), the endpoint is reachable.
+                if ($_.Exception -and $_.Exception.Response) {
+                    try { $_.Exception.Response.Close() } catch { }
+                } else {
+                    throw ("Discovery URL is not reachable: {0}" -f $DiscoveryUrl)
+                }
+            }
+        }
+
         Initialize-ITFMDMInterop
 
         $didUnenroll = $false
         $unenrollRc = $null
         if (-not $SkipUnenroll -and -not $EnrollOnly) {
             if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, 'UnregisterDeviceWithManagement(0)')) {
+                $changesMade = $true
                 Write-ITFMDMLog -Level Warn -EventId 2002 -Message 'Calling UnregisterDeviceWithManagement(0) to remove current MDM enrollment' -Data @{
                     detected_before = $stateBefore.Detected
                 }
@@ -130,6 +163,12 @@ function Invoke-ITFMDMMigration {
                     throw ("Unenroll failed (HRESULT=0x{0:X8})." -f $unenrollRc)
                 }
                 $didUnenroll = $true
+
+                # Poll until legacy enrollment artifacts are gone to reduce unenroll→enroll race conditions.
+                $legacyGone = Wait-ITFLegacyMdmUnenrolled -TimeoutSeconds 180 -PollIntervalSeconds 5
+                if (-not $legacyGone) {
+                    throw 'Timed out waiting for legacy MDM unenroll confirmation.'
+                }
             }
         }
 
@@ -148,15 +187,11 @@ function Invoke-ITFMDMMigration {
             Send-ITFSlackNotification -SlackWebhook $SlackWebhook -Type 'Started' -Context $notifyCtx | Out-Null
         }
 
-        $orbit = Get-ITFOrbitNodeKey -OrbitNodeKeyPath $OrbitNodeKeyPath
-        if (-not $orbit -or -not $orbit.OrbitNodeKey) {
-            throw 'Orbit node key not found on disk. Install Orbit and ensure the node key file is present, or pass -OrbitNodeKeyPath.'
-        }
-
         $token = New-ITFProgrammaticEnrollmentToken -OrbitNodeKey $orbit.OrbitNodeKey
 
         $enrollRc = $null
         if ($PSCmdlet.ShouldProcess($env:COMPUTERNAME, "RegisterDeviceWithManagement('', '$DiscoveryUrl', <token>)")) {
+            $changesMade = $true
             Write-ITFMDMLog -Level Warn -EventId 2003 -Message 'Calling RegisterDeviceWithManagement for Fleet discovery URL' -Data @{
                 discovery_url = $DiscoveryUrl
                 orbit_node_key_path = $orbit.Path
@@ -169,8 +204,7 @@ function Invoke-ITFMDMMigration {
         }
 
         # Verification is authoritative; some environments return non-zero even with a healthy OMADM account.
-        Start-Sleep -Seconds 5
-        $proof = Test-ITFFleetMDMProvisioned -ExpectedFleetHost $FleetHost
+        $proof = Wait-ITFFleetMdmProvisioned -ExpectedFleetHost $FleetHost -TimeoutSeconds 300 -PollIntervalSeconds 5
         if ($null -eq $proof) {
             Set-ITFMDMStateToRegistry -StateRegistryKey $cfg.StateRegistryKey -Values @{ Status = 'FailedEnroll' } | Out-Null
             if ($null -ne $enrollRc -and $enrollRc -ne 0) {
@@ -211,10 +245,24 @@ function Invoke-ITFMDMMigration {
         return $res
     }
     catch {
-        if ($SlackWebhook -and $notifyCtx) {
-            $reason = $null
-            try { $reason = $_.Exception.Message } catch { }
-            Send-ITFSlackNotification -SlackWebhook $SlackWebhook -Type 'Failure' -Context $notifyCtx -FailureReason $reason | Out-Null
+        $reason = $null
+        try { $reason = $_.Exception.Message } catch { }
+
+        if (-not $changesMade) {
+            # Preflight failure: no unenroll/enroll calls were made.
+            Set-ITFMDMStateToRegistry -StateRegistryKey $cfg.StateRegistryKey -Values @{
+                Status = 'PreflightFailed'
+                PreflightFailureReason = $reason
+                PreflightFailureTime = (Get-Date).ToString('o')
+            } | Out-Null
+
+            if ($SlackWebhook -and $notifyCtx) {
+                Send-ITFSlackNotification -SlackWebhook $SlackWebhook -Type 'PreflightFailed' -Context $notifyCtx -FailureReason $reason | Out-Null
+            }
+        } else {
+            if ($SlackWebhook -and $notifyCtx) {
+                Send-ITFSlackNotification -SlackWebhook $SlackWebhook -Type 'Failure' -Context $notifyCtx -FailureReason $reason | Out-Null
+            }
         }
         throw
     }

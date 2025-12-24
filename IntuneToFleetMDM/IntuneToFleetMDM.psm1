@@ -72,6 +72,8 @@ $privateFiles = @(
     'Private\MDM\Get-ITFMDMEnrollments.ps1'
     'Private\MDM\Get-ITFOMADMConnInfo.ps1'
     'Private\MDM\Test-ITFFleetMDMProvisioned.ps1'
+    'Private\MDM\Wait-ITFLegacyMdmUnenrolled.ps1'
+    'Private\MDM\Wait-ITFFleetMdmProvisioned.ps1'
     'Private\Orbit\Get-ITFOrbitNodeKey.ps1'
     'Private\Token\New-ITFProgrammaticEnrollmentToken.ps1'
 )

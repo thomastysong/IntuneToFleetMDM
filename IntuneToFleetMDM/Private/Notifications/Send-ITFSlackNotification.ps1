@@ -5,7 +5,7 @@ function Send-ITFSlackNotification {
         [string]$SlackWebhook,
 
         [Parameter(Mandatory)]
-        [ValidateSet('Started','Success','Failure')]
+        [ValidateSet('Started','Success','Failure','PreflightFailed')]
         [string]$Type,
 
         [Parameter(Mandatory)]

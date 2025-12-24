@@ -10,6 +10,9 @@ DESCRIPTION
       - RegisterDeviceWithManagement(..., https://<fleet-host>/api/mdm/microsoft/discovery, <token>) to enroll into Fleet
 
     Enrollment is verified using OS state (Enrollments + OMADM registry), not only return codes.
+    The migration flow uses preflight checks and polling to reduce timing issues:
+      - Preflight runs before unenroll to avoid orphaned unenrolls when enrollment prerequisites are missing.
+      - After unenroll/enroll calls, the module polls OS state until it confirms readiness (or times out).
 
 COMMANDS
     Get-ITFMDMEnrollmentState
@@ -34,5 +37,6 @@ EXAMPLES
 NOTES
     - Must run elevated (SYSTEM/Admin).
     - Some environments behave better in MTA; Invoke-ITFMDMMigration can relaunch in MTA when needed.
+    - If a prereq fails before any unenroll/enroll calls are made, Slack notifications use type PreflightFailed.
 
 

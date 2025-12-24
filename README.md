@@ -35,13 +35,23 @@ Invoke-ITFMDMMigration -FleetHost '<fleet-host>'
 
 ## Slack notifications (optional)
 
-If you pass `-SlackWebhook`, the module will send **three standardized notifications** (best-effort):
+If you pass `-SlackWebhook`, the module will send **standardized notifications** (best-effort):
 
 - Started (after successful unenroll, before enroll)
 - Success (after verification)
 - Failure (on any error)
+- PreflightFailed (on prereq failure before any enrollment changes are made)
 
 Webhook values are treated as secrets and are **not logged**.
+
+## Preflight + race condition handling
+
+To reduce “unenroll then fail” outcomes and timing issues, `Invoke-ITFMDMMigration`:
+
+- Runs **preflight checks before unenroll** (e.g., Orbit node key present, Fleet discovery URL reachable). If preflight fails, it aborts without calling Windows MDM unenroll/enroll APIs.
+- Uses **polling with timeouts** (instead of fixed sleeps) to confirm:
+  - Legacy MDM unenroll is reflected in OS state
+  - Fleet OMADM account is provisioned and syncing
 
 Examples:
 

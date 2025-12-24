@@ -2,7 +2,7 @@ function New-ITFSlackPayload {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('Started','Success','Failure')]
+        [ValidateSet('Started','Success','Failure','PreflightFailed')]
         [string]$Type,
 
         [Parameter(Mandatory)]
@@ -28,6 +28,51 @@ function New-ITFSlackPayload {
 
     $payload = $null
     switch ($Type) {
+        'PreflightFailed' {
+            $payload = @{
+                text = 'MDM Migration Preflight Failed'
+                attachments = @(
+                    @{
+                        color = '#E01E5A'
+                        blocks = @(
+                            @{
+                                type = 'header'
+                                text = @{
+                                    type = 'plain_text'
+                                    text = ':x: MDM Migration Preflight Failed :fleet:'
+                                    emoji = $true
+                                }
+                            }
+                            @{
+                                type = 'section'
+                                text = @{
+                                    type = 'mrkdwn'
+                                    text = '*Preflight checks did not pass.* No changes were made. Fix prerequisites and retry.'
+                                }
+                            }
+                            @{ type = 'divider' }
+                            @{
+                                type = 'section'
+                                fields = $baseFields
+                            }
+                            @{
+                                type = 'section'
+                                fields = @(
+                                    @{ type = 'mrkdwn'; text = ("*Failure Reason*`n{0}" -f $FailureReason) }
+                                )
+                            }
+                            @{
+                                type = 'context'
+                                elements = @(
+                                    @{ type = 'mrkdwn'; text = 'MDM Migration Orchestrator' }
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        }
+
         'Failure' {
             $payload = @{
                 text = 'MDM Migration Failed'
@@ -47,7 +92,7 @@ function New-ITFSlackPayload {
                                 type = 'section'
                                 text = @{
                                     type = 'mrkdwn'
-                                    text = '*Enrollment did not complete.* We’ll retry automatically and post an update when it succeeds.'
+                                    text = '*Enrollment did not complete.* We''ll retry automatically and post an update when it succeeds.'
                                 }
                             }
                             @{ type = 'divider' }

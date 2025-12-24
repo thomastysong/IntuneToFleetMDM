@@ -1,6 +1,6 @@
 @{
     RootModule        = 'IntuneToFleetMDM.psm1'
-    ModuleVersion     = '0.2.0'
+    ModuleVersion     = '0.3.0'
     GUID              = '7fdf3f2a-5b6f-4d5b-9bb4-4d1f8b0a5e4a'
     Author            = 'Thomas Tyson'
     CompanyName       = 'Community'
