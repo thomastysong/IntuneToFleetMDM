@@ -16,6 +16,18 @@ param(
   [string]$FleetHost,
 
   [Parameter()]
+  [bool]$Install = $false,
+
+  [Parameter()]
+  [string]$EnrollSecret,
+
+  [Parameter()]
+  [string]$InstallerUrl,
+
+  [Parameter()]
+  [string]$MsiPath,
+
+  [Parameter()]
   [switch]$SkipUnenroll,
 
   [Parameter()]
@@ -48,12 +60,25 @@ function Test-IsAdmin {
 if (-not $NoElevate -and -not (Test-IsAdmin)) {
   Write-Host "Admin rights are required. A UAC prompt will appear..." -ForegroundColor Yellow
   $cmd = "irm '$SelfUrl' | iex"
-  Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList @(
+
+  $argsList = @(
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
     "-Command", $cmd,
     "-FleetHost", $FleetHost
-  ) | Out-Null
+  )
+
+  if ($Install) { $argsList += "-Install", "true" }
+  if ($EnrollSecret) { $argsList += "-EnrollSecret", "`"$EnrollSecret`"" }
+  if ($InstallerUrl) { $argsList += "-InstallerUrl", "`"$InstallerUrl`"" }
+  if ($MsiPath) { $argsList += "-MsiPath", "`"$MsiPath`"" }
+  if ($SkipUnenroll) { $argsList += "-SkipUnenroll" }
+  if ($EnrollOnly) { $argsList += "-EnrollOnly" }
+  if ($UnenrollOnly) { $argsList += "-UnenrollOnly" }
+  if ($Force) { $argsList += "-Force" }
+  if ($SlackWebhook) { $argsList += "-SlackWebhook", "`"$SlackWebhook`"" }
+
+  Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $argsList | Out-Null
   return
 }
 
@@ -73,6 +98,10 @@ try {
   $params = @{
     FleetHost = $FleetHost
   }
+  if ($Install) { $params.Install = $Install }
+  if ($EnrollSecret) { $params.EnrollSecret = $EnrollSecret }
+  if ($InstallerUrl) { $params.InstallerUrl = $InstallerUrl }
+  if ($MsiPath) { $params.MsiPath = $MsiPath }
   if ($SkipUnenroll) { $params.SkipUnenroll = $true }
   if ($EnrollOnly) { $params.EnrollOnly = $true }
   if ($UnenrollOnly) { $params.UnenrollOnly = $true }

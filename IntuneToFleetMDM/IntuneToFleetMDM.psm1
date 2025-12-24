@@ -63,6 +63,7 @@ $privateFiles = @(
     'Private\Logging\Write-ITFMDMEvent.ps1'
     'Private\State\Get-ITFMDMStateFromRegistry.ps1'
     'Private\State\Set-ITFMDMStateToRegistry.ps1'
+    'Private\Installer\Install-ITFFleetdBaseMsi.ps1'
     'Private\Notifications\Resolve-ITFSlackWebhookUrl.ps1'
     'Private\Notifications\Get-ITFDeviceNotificationContext.ps1'
     'Private\Notifications\New-ITFSlackPayload.ps1'

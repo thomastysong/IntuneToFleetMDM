@@ -27,6 +27,9 @@ EXAMPLES
     # Full migration
     Invoke-ITFMDMMigration -FleetHost '<fleet-host>'
 
+    # Optional: install Fleet agent first if Orbit node key is missing
+    Invoke-ITFMDMMigration -FleetHost '<fleet-host>' -Install true -EnrollSecret '<enroll-secret>'
+
     # Full migration with Slack notifications (optional)
     # Accepts either a full URL or a path-only value (T.../B.../W...)
     Invoke-ITFMDMMigration -FleetHost '<fleet-host>' -SlackWebhook '<TEAM_ID>/<CHANNEL_ID>/<WEBHOOK_TOKEN>'
@@ -39,5 +42,6 @@ NOTES
     - Some environments behave better in MTA; Invoke-ITFMDMMigration can relaunch in MTA when needed.
     - If a prereq fails before any unenroll/enroll calls are made, Slack notifications use type PreflightFailed.
     - If Fleet enrollment artifacts exist but OMADM is not yet healthy by the verification timeout, Invoke-ITFMDMMigration returns Status=InProgress (retry later; often ~30 minutes).
+    - EnrollSecret is treated as a secret and is not logged, but is passed to msiexec as an MSI property when -Install is used.
 
 

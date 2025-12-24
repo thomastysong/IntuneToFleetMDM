@@ -33,6 +33,29 @@ Test-ITFMDMMigrationPrereqs -FleetHost '<fleet-host>'
 Invoke-ITFMDMMigration -FleetHost '<fleet-host>'
 ```
 
+## Optional: install Fleet agent (Orbit/fleetd) if missing
+
+If the device does not yet have an Orbit node key on disk, you can allow the migration to install Fleet’s Windows package first (best-effort) using the enrollment secret:
+
+```powershell
+Invoke-ITFMDMMigration -FleetHost '<fleet-host>' -Install true -EnrollSecret '<enroll-secret>'
+```
+
+Installer overrides:
+
+```powershell
+# Use a custom download URL (default is https://download.fleetdm.com/stable/fleetd-base.msi)
+Invoke-ITFMDMMigration -FleetHost '<fleet-host>' -Install true -EnrollSecret '<enroll-secret>' -InstallerUrl 'https://example.invalid/fleetd-base.msi'
+
+# Use a local MSI path
+Invoke-ITFMDMMigration -FleetHost '<fleet-host>' -Install true -EnrollSecret '<enroll-secret>' -MsiPath 'C:\Temp\fleetd-base.msi'
+```
+
+Notes:
+
+- `EnrollSecret` is treated as a secret and is **not logged** (file log, Event Viewer, Slack).
+- The secret is still passed to `msiexec` as an MSI property during install, which can be visible in process command lines while the install is running.
+
 ## Slack notifications (optional)
 
 If you pass `-SlackWebhook`, the module will send **standardized notifications** (best-effort):
@@ -69,9 +92,10 @@ Invoke-ITFMDMMigration -FleetHost '<fleet-host>' -SlackWebhook 'https://hooks.sl
 - Windows 10/11 **client** (Windows Server is not supported for Windows MDM enrollment)
 - PowerShell 5.1+
 - Must run as **SYSTEM** or **Administrator**
-- **Orbit already installed** on the target device(s) (device is Fleet-enrolled but not MDM-enrolled)
-  - The module reads the local Orbit node key from disk to build the programmatic enrollment token.
-  - The node key is **never printed/logged**.
+- **Fleet agent (Orbit/fleetd)**:
+  - Recommended: already installed on the target device(s).
+  - If missing (no Orbit node key on disk), you can use `-Install true -EnrollSecret '<enroll-secret>'` to install it before MDM enrollment.
+  - The module reads the local Orbit node key from disk to build the programmatic enrollment token (node key is **never printed/logged**).
 - Fleet server has **Windows MDM fully configured and enabled** (including WSTEP identity cert/key) and the device can reach:
   - `https://<fleet-host>/api/mdm/microsoft/discovery`
 

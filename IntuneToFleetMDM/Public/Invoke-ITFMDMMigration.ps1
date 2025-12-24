@@ -8,6 +8,24 @@ function Invoke-ITFMDMMigration {
         [string]$DiscoveryUrl,
 
         [Parameter()]
+        [bool]$Install = $false,
+
+        [Parameter()]
+        [string]$EnrollSecret,
+
+        [Parameter()]
+        [string]$InstallerUrl = 'https://download.fleetdm.com/stable/fleetd-base.msi',
+
+        [Parameter()]
+        [string]$MsiPath,
+
+        [Parameter()]
+        [int]$InstallTimeoutSeconds = 300,
+
+        [Parameter()]
+        [int]$InstallPollIntervalSeconds = 5,
+
+        [Parameter()]
         [switch]$SkipUnenroll,
 
         [Parameter()]
@@ -48,6 +66,12 @@ function Invoke-ITFMDMMigration {
         $args = @{
             FleetHost        = $FleetHost
             DiscoveryUrl     = $DiscoveryUrl
+            Install          = [bool]$Install
+            EnrollSecret     = $EnrollSecret
+            InstallerUrl     = $InstallerUrl
+            MsiPath          = $MsiPath
+            InstallTimeoutSeconds      = [int]$InstallTimeoutSeconds
+            InstallPollIntervalSeconds = [int]$InstallPollIntervalSeconds
             SkipUnenroll     = [bool]$SkipUnenroll
             UnenrollOnly     = [bool]$UnenrollOnly
             EnrollOnly       = [bool]$EnrollOnly
@@ -185,7 +209,28 @@ function Invoke-ITFMDMMigration {
         if (-not $UnenrollOnly) {
             $orbit = Get-ITFOrbitNodeKey -OrbitNodeKeyPath $OrbitNodeKeyPath
             if (-not $orbit -or -not $orbit.OrbitNodeKey) {
-                throw 'Orbit node key not found on disk. Install Orbit and ensure the node key file is present, or pass -OrbitNodeKeyPath.'
+                if ($Install) {
+                    if (-not $EnrollSecret) {
+                        throw 'EnrollSecret is required when -Install is true.'
+                    }
+
+                    Write-ITFMDMLog -Level Warn -EventId 2100 -Message 'Orbit node key missing; -Install is enabled so Fleet agent install will be attempted' -Data @{
+                        installer_url = if ($MsiPath) { $null } else { $InstallerUrl }
+                        msi_path      = $MsiPath
+                        install_timeout_seconds = $InstallTimeoutSeconds
+                        install_poll_interval_seconds = $InstallPollIntervalSeconds
+                        enroll_secret_provided = $true
+                    }
+
+                    Install-ITFFleetdBaseMsi -FleetHost $FleetHost -EnrollSecret $EnrollSecret -InstallerUrl $InstallerUrl -MsiPath $MsiPath -TimeoutSeconds $InstallTimeoutSeconds -PollIntervalSeconds $InstallPollIntervalSeconds | Out-Null
+
+                    $orbit = Get-ITFOrbitNodeKey -OrbitNodeKeyPath $OrbitNodeKeyPath
+                    if (-not $orbit -or -not $orbit.OrbitNodeKey) {
+                        throw 'Orbit node key still not found after Fleet agent install attempt. Retry later or pass -OrbitNodeKeyPath if using a non-standard install location.'
+                    }
+                } else {
+                    throw 'Orbit node key not found on disk. Install Fleet agent (Orbit/fleetd) or run with -Install true -EnrollSecret <value>, or pass -OrbitNodeKeyPath.'
+                }
             }
 
             # Best-effort reachability check. If the discovery endpoint cannot be reached (no HTTP response),
