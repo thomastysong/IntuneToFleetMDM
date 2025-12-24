@@ -28,6 +28,9 @@ param(
   [switch]$Force,
 
   [Parameter()]
+  [string]$SlackWebhook,
+
+  [Parameter()]
   [switch]$NoElevate,
 
   [Parameter()]
@@ -74,6 +77,7 @@ try {
   if ($EnrollOnly) { $params.EnrollOnly = $true }
   if ($UnenrollOnly) { $params.UnenrollOnly = $true }
   if ($Force) { $params.Force = $true }
+  if ($SlackWebhook) { $params.SlackWebhook = $SlackWebhook }
 
   Invoke-ITFMDMMigration @params
 }

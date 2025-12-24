@@ -33,6 +33,26 @@ Test-ITFMDMMigrationPrereqs -FleetHost '<fleet-host>'
 Invoke-ITFMDMMigration -FleetHost '<fleet-host>'
 ```
 
+## Slack notifications (optional)
+
+If you pass `-SlackWebhook`, the module will send **three standardized notifications** (best-effort):
+
+- Started (after successful unenroll, before enroll)
+- Success (after verification)
+- Failure (on any error)
+
+Webhook values are treated as secrets and are **not logged**.
+
+Examples:
+
+```powershell
+# Path-only form (recommended for readability)
+Invoke-ITFMDMMigration -FleetHost '<fleet-host>' -SlackWebhook '<TEAM_ID>/<CHANNEL_ID>/<WEBHOOK_TOKEN>'
+
+# Full URL form
+Invoke-ITFMDMMigration -FleetHost '<fleet-host>' -SlackWebhook 'https://hooks.slack.com/services/<TEAM_ID>/<CHANNEL_ID>/<WEBHOOK_TOKEN>'
+```
+
 ## Prerequisites
 
 - Windows 10/11 **client** (Windows Server is not supported for Windows MDM enrollment)

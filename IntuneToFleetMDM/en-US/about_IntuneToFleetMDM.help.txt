@@ -24,6 +24,10 @@ EXAMPLES
     # Full migration
     Invoke-ITFMDMMigration -FleetHost '<fleet-host>'
 
+    # Full migration with Slack notifications (optional)
+    # Accepts either a full URL or a path-only value (T.../B.../W...)
+    Invoke-ITFMDMMigration -FleetHost '<fleet-host>' -SlackWebhook '<TEAM_ID>/<CHANNEL_ID>/<WEBHOOK_TOKEN>'
+
     # Enroll-only retry (skip unenroll)
     Invoke-ITFMDMMigration -FleetHost '<fleet-host>' -SkipUnenroll
 
