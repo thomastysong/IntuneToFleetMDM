@@ -52,6 +52,7 @@ To reduce “unenroll then fail” outcomes and timing issues, `Invoke-ITFMDMMig
 - Uses **polling with timeouts** (instead of fixed sleeps) to confirm:
   - Legacy MDM unenroll is reflected in OS state
   - Fleet OMADM account is provisioned and syncing
+- If Fleet enrollment artifacts exist but OMADM is not yet healthy by the verification timeout, the cmdlet returns **`Status = InProgress`** (no throw) so your orchestrator can rerun it later (often ~30 minutes).
 
 Examples:
 

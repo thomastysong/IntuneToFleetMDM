@@ -88,11 +88,37 @@ function Invoke-ITFMDMMigration {
             throw "Windows Server detected (InstallationType=$installType). Windows MDM enrollment is not supported."
         }
 
+        $existingState = Get-ITFMDMStateFromRegistry -StateRegistryKey $cfg.StateRegistryKey
+
         $already = Test-ITFFleetMDMProvisioned -ExpectedFleetHost $FleetHost
         if ($already -and -not $Force) {
             Write-ITFMDMLog -Level Info -EventId 1002 -Message 'Already Fleet MDM enrolled and syncing; skipping' -Data $already
+
+            # If we were previously "InProgress", mark completion and optionally post Slack Success on this verification run.
+            $wasVerified = $false
+            try {
+                if ($existingState -and $existingState.PSObject.Properties.Name -contains 'Status' -and $existingState.Status -eq 'Verified') {
+                    $wasVerified = $true
+                }
+            } catch { }
+
+            if (-not $wasVerified) {
+                Set-ITFMDMStateToRegistry -StateRegistryKey $cfg.StateRegistryKey -Values @{
+                    CorrelationId = $corr
+                    FleetHost     = $FleetHost
+                    DiscoveryUrl  = $DiscoveryUrl
+                    Status        = 'Verified'
+                    EnrollmentId  = $already.EnrollmentId
+                    VerifiedTime  = (Get-Date).ToString('o')
+                } | Out-Null
+
+                if ($SlackWebhook -and $notifyCtx) {
+                    Send-ITFSlackNotification -SlackWebhook $SlackWebhook -Type 'Success' -Context $notifyCtx | Out-Null
+                }
+            }
+
             $res = [ITFMDMMigrationResult]::new()
-            $res.Status = 'AlreadyEnrolled'
+            $res.Status = 'Verified'
             $res.FleetHost = $FleetHost
             $res.DiscoveryUrl = $DiscoveryUrl
             $res.EnrollmentId = $already.EnrollmentId
@@ -103,6 +129,47 @@ function Invoke-ITFMDMMigration {
         $stateBefore = Get-ITFMDMEnrollmentState
         if (-not $Force -and $stateBefore.Detected -eq 'Intune' -and $EnrollOnly) {
             throw 'EnrollOnly requested but Intune enrollment is still present (detected). Unenroll first or use -Force.'
+        }
+
+        # If Fleet enrollment artifacts exist but are not yet healthy (OMADM not confirmed), treat this as "in progress"
+        # rather than a hard failure. In practice, Windows can take a long time to fully provision/sync the OMADM account.
+        if (-not $Force -and $null -eq $already) {
+            $legacyEnrollments = @($stateBefore.Enrollments | Where-Object { $_.ProviderId -eq 'MS DM Server' -or $_.ProviderId -eq 'Microsoft Device Management' })
+            $fleetEnrollments = @($stateBefore.Enrollments | Where-Object { $_.ProviderId -eq 'Fleet' })
+
+            if ($FleetHost) {
+                $fleetEnrollments = @($fleetEnrollments | Where-Object {
+                    $_.DiscoveryServiceFullURL -and ($_.DiscoveryServiceFullURL -match [Regex]::Escape($FleetHost))
+                })
+            }
+
+            if ($legacyEnrollments.Count -eq 0 -and $fleetEnrollments.Count -gt 0) {
+                $inProgressId = $fleetEnrollments[0].EnrollmentId
+
+                Write-ITFMDMLog -Level Warn -EventId 2005 -Message 'Fleet MDM enrollment artifacts detected but OMADM is not yet verified healthy; returning InProgress (retry later)' -Data @{
+                    enrollment_id = $inProgressId
+                    discovery_url = $fleetEnrollments[0].DiscoveryServiceFullURL
+                    suggested_retry_after_minutes = 30
+                }
+
+                Set-ITFMDMStateToRegistry -StateRegistryKey $cfg.StateRegistryKey -Values @{
+                    CorrelationId  = $corr
+                    FleetHost      = $FleetHost
+                    DiscoveryUrl   = $DiscoveryUrl
+                    Status         = 'InProgress'
+                    EnrollmentId   = $inProgressId
+                    InProgressTime = (Get-Date).ToString('o')
+                    NextRetryAfter = (Get-Date).AddMinutes(30).ToString('o')
+                } | Out-Null
+
+                $res = [ITFMDMMigrationResult]::new()
+                $res.Status = 'InProgress'
+                $res.FleetHost = $FleetHost
+                $res.DiscoveryUrl = $DiscoveryUrl
+                $res.EnrollmentId = $inProgressId
+                $res.CorrelationId = $corr
+                return $res
+            }
         }
 
         Set-ITFMDMStateToRegistry -StateRegistryKey $cfg.StateRegistryKey -Values @{
@@ -206,6 +273,40 @@ function Invoke-ITFMDMMigration {
         # Verification is authoritative; some environments return non-zero even with a healthy OMADM account.
         $proof = Wait-ITFFleetMdmProvisioned -ExpectedFleetHost $FleetHost -TimeoutSeconds 300 -PollIntervalSeconds 5
         if ($null -eq $proof) {
+            # If Fleet enrollment artifacts exist but OMADM is not yet healthy, treat this as in-progress.
+            # This prevents Fleet/Intune/SCCM orchestrators from interpreting a transient "not yet synced" state as a failure.
+            $fleetEnrollments = @(Get-ITFMDMEnrollments | Where-Object { $_.ProviderId -eq 'Fleet' })
+            if ($FleetHost) {
+                $fleetEnrollments = @($fleetEnrollments | Where-Object {
+                    $_.DiscoveryServiceFullURL -and ($_.DiscoveryServiceFullURL -match [Regex]::Escape($FleetHost))
+                })
+            }
+
+            if ($fleetEnrollments.Count -gt 0) {
+                $inProgressId = $fleetEnrollments[0].EnrollmentId
+
+                Write-ITFMDMLog -Level Warn -EventId 2006 -Message 'Fleet MDM enrollment not yet verified; returning InProgress (retry later)' -Data @{
+                    enrollment_id = $inProgressId
+                    enroll_hresult_hex = if ($null -ne $enrollRc) { ('0x{0:X8}' -f $enrollRc) } else { $null }
+                    suggested_retry_after_minutes = 30
+                }
+
+                Set-ITFMDMStateToRegistry -StateRegistryKey $cfg.StateRegistryKey -Values @{
+                    Status         = 'InProgress'
+                    EnrollmentId   = $inProgressId
+                    InProgressTime = (Get-Date).ToString('o')
+                    NextRetryAfter = (Get-Date).AddMinutes(30).ToString('o')
+                } | Out-Null
+
+                $res = [ITFMDMMigrationResult]::new()
+                $res.Status = 'InProgress'
+                $res.FleetHost = $FleetHost
+                $res.DiscoveryUrl = $DiscoveryUrl
+                $res.EnrollmentId = $inProgressId
+                $res.CorrelationId = $corr
+                return $res
+            }
+
             Set-ITFMDMStateToRegistry -StateRegistryKey $cfg.StateRegistryKey -Values @{ Status = 'FailedEnroll' } | Out-Null
             if ($null -ne $enrollRc -and $enrollRc -ne 0) {
                 throw ("Enroll failed (HRESULT=0x{0:X8}) and verification did not find a healthy Fleet OMADM account." -f $enrollRc)
