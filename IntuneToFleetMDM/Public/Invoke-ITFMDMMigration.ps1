@@ -159,12 +159,18 @@ function Invoke-ITFMDMMigration {
         # rather than a hard failure. In practice, Windows can take a long time to fully provision/sync the OMADM account.
         if (-not $Force -and $null -eq $already) {
             $legacyEnrollments = @($stateBefore.Enrollments | Where-Object { $_.ProviderId -eq 'MS DM Server' -or $_.ProviderId -eq 'Microsoft Device Management' })
-            $fleetEnrollments = @($stateBefore.Enrollments | Where-Object { $_.ProviderId -eq 'Fleet' })
+            $fleetEnrollmentsAll = @($stateBefore.Enrollments | Where-Object { $_.ProviderId -eq 'Fleet' })
+            $fleetEnrollments = $fleetEnrollmentsAll
 
             if ($FleetHost) {
-                $fleetEnrollments = @($fleetEnrollments | Where-Object {
+                # Prefer entries whose DiscoveryServiceFullURL matches the target host when available,
+                # but do not discard entries with empty DiscoveryServiceFullURL (it may not be populated yet).
+                $matching = @($fleetEnrollmentsAll | Where-Object {
                     $_.DiscoveryServiceFullURL -and ($_.DiscoveryServiceFullURL -match [Regex]::Escape($FleetHost))
                 })
+                if ($matching.Count -gt 0) {
+                    $fleetEnrollments = $matching
+                }
             }
 
             if ($legacyEnrollments.Count -eq 0 -and $fleetEnrollments.Count -gt 0) {
@@ -192,6 +198,11 @@ function Invoke-ITFMDMMigration {
                 $res.DiscoveryUrl = $DiscoveryUrl
                 $res.EnrollmentId = $inProgressId
                 $res.CorrelationId = $corr
+
+                if ($SlackWebhook -and $notifyCtx) {
+                    Send-ITFSlackNotification -SlackWebhook $SlackWebhook -Type 'InProgress' -Context $notifyCtx -FailureReason 'Fleet enrollment artifacts detected but OMADM is not yet verified healthy (still provisioning). Retry later (~30 minutes).' | Out-Null
+                }
+
                 return $res
             }
         }
@@ -320,11 +331,17 @@ function Invoke-ITFMDMMigration {
         if ($null -eq $proof) {
             # If Fleet enrollment artifacts exist but OMADM is not yet healthy, treat this as in-progress.
             # This prevents Fleet/Intune/SCCM orchestrators from interpreting a transient "not yet synced" state as a failure.
-            $fleetEnrollments = @(Get-ITFMDMEnrollments | Where-Object { $_.ProviderId -eq 'Fleet' })
+            $fleetEnrollmentsAll = @(Get-ITFMDMEnrollments | Where-Object { $_.ProviderId -eq 'Fleet' })
+            $fleetEnrollments = $fleetEnrollmentsAll
             if ($FleetHost) {
-                $fleetEnrollments = @($fleetEnrollments | Where-Object {
+                # Prefer entries whose DiscoveryServiceFullURL matches the target host when available,
+                # but do not discard entries with empty DiscoveryServiceFullURL (it may not be populated yet).
+                $matching = @($fleetEnrollmentsAll | Where-Object {
                     $_.DiscoveryServiceFullURL -and ($_.DiscoveryServiceFullURL -match [Regex]::Escape($FleetHost))
                 })
+                if ($matching.Count -gt 0) {
+                    $fleetEnrollments = $matching
+                }
             }
 
             if ($fleetEnrollments.Count -gt 0) {
@@ -349,6 +366,42 @@ function Invoke-ITFMDMMigration {
                 $res.DiscoveryUrl = $DiscoveryUrl
                 $res.EnrollmentId = $inProgressId
                 $res.CorrelationId = $corr
+
+                if ($SlackWebhook -and $notifyCtx) {
+                    $hr = $null
+                    if ($null -ne $enrollRc) { $hr = ('0x{0:X8}' -f $enrollRc) }
+                    $msg = "Enroll is still provisioning; Fleet OMADM not yet verified healthy. Suggested retry: ~30 minutes."
+                    if ($hr) { $msg = ("Enroll returned HRESULT={0}. {1}" -f $hr, $msg) }
+                    Send-ITFSlackNotification -SlackWebhook $SlackWebhook -Type 'InProgress' -Context $notifyCtx -FailureReason $msg | Out-Null
+                }
+
+                return $res
+            }
+
+            # Special-case: some environments return non-zero HRESULTs that are indicative of enrollment still provisioning.
+            if ($null -ne $enrollRc -and ([uint32]$enrollRc -eq 0x80180023)) {
+                Write-ITFMDMLog -Level Warn -EventId 2007 -Message 'Enroll returned 0x80180023 and verification is not yet healthy; treating as InProgress (retry later)' -Data @{
+                    enroll_hresult_hex = ('0x{0:X8}' -f $enrollRc)
+                    suggested_retry_after_minutes = 30
+                }
+
+                Set-ITFMDMStateToRegistry -StateRegistryKey $cfg.StateRegistryKey -Values @{
+                    Status         = 'InProgress'
+                    InProgressTime = (Get-Date).ToString('o')
+                    NextRetryAfter = (Get-Date).AddMinutes(30).ToString('o')
+                } | Out-Null
+
+                $res = [ITFMDMMigrationResult]::new()
+                $res.Status = 'InProgress'
+                $res.FleetHost = $FleetHost
+                $res.DiscoveryUrl = $DiscoveryUrl
+                $res.EnrollHResult = [uint32]$enrollRc
+                $res.CorrelationId = $corr
+
+                if ($SlackWebhook -and $notifyCtx) {
+                    Send-ITFSlackNotification -SlackWebhook $SlackWebhook -Type 'InProgress' -Context $notifyCtx -FailureReason 'Enroll returned HRESULT=0x80180023 and OMADM is not yet verified healthy (still provisioning). Retry later (~30 minutes).' | Out-Null
+                }
+
                 return $res
             }
 

@@ -41,6 +41,7 @@ NOTES
     - Must run elevated (SYSTEM/Admin).
     - Some environments behave better in MTA; Invoke-ITFMDMMigration can relaunch in MTA when needed.
     - If a prereq fails before any unenroll/enroll calls are made, Slack notifications use type PreflightFailed.
+    - If enrollment is initiated but OMADM is not yet healthy by the verification timeout, Slack notifications use type InProgress (retry later; often ~30 minutes).
     - If Fleet enrollment artifacts exist but OMADM is not yet healthy by the verification timeout, Invoke-ITFMDMMigration returns Status=InProgress (retry later; often ~30 minutes).
     - EnrollSecret is treated as a secret and is not logged, but is passed to msiexec as an MSI property when -Install is used.
 

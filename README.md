@@ -61,6 +61,7 @@ Notes:
 If you pass `-SlackWebhook`, the module will send **standardized notifications** (best-effort):
 
 - Started (after successful unenroll, before enroll)
+- InProgress (enroll initiated but OMADM not yet verified healthy; retry later)
 - Success (after verification)
 - Failure (on any error)
 - PreflightFailed (on prereq failure before any enrollment changes are made)
